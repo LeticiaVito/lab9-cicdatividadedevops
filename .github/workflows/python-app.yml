@@ -55,3 +55,55 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+
+  # 3) HOMOLOGAÇÃO: automático ao push em develop, porta 8080
+  Deploy_Homologacao:
+    name: Deploy Homologação
+    runs-on: ubuntu-latest
+    needs: imagem
+    if: github.ref == 'refs/heads/develop'
+    environment: homologacao
+    steps:
+      - name: Deploy via SSH na EC2 de homologação
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST_HOMOL }}
+          username: ${{ secrets.EC2_USERNAME_HOMOL }}
+          key: ${{ secrets.EC2_SSH_KEY_HOMOL }}
+          script: |
+            docker pull ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            docker stop ${{ env.CONTAINER_NAME }}-homol || true
+            docker rm ${{ env.CONTAINER_NAME }}-homol || true
+            docker run -d \
+              --name ${{ env.CONTAINER_NAME }}-homol \
+              --restart unless-stopped \
+              -p 8080:8000 \
+              ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            sleep 5
+            curl -fsS http://localhost:8080/health
+
+  # 4) PRODUÇÃO: só em main + aprovação manual (GitHub Environment)
+  Deploy_Producao:
+    name: Deploy Produção
+    runs-on: ubuntu-latest
+    needs: imagem
+    if: github.ref == 'refs/heads/main'
+    environment: producao
+    steps:
+      - name: Deploy via SSH na EC2 de produção
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            docker pull ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            docker stop ${{ env.CONTAINER_NAME }}-prd || true
+            docker rm ${{ env.CONTAINER_NAME }}-prd || true
+            docker run -d \
+              --name ${{ env.CONTAINER_NAME }}-prd \
+              --restart unless-stopped \
+              -p 80:8000 \
+              ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            sleep 5
+            curl -fsS http://localhost:80/health
